@@ -23,9 +23,13 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 RAPID_API_KEY = os.getenv("RAPID_API_KEY")
 RAPID_API_HOST = "instagram-profile-data-api.p.rapidapi.com"
 
+# 1. Yeh naya route hai testing ke liye
+@app.get("/")
+def home():
+    return {"status": "online", "message": "InstaPersona Backend is running!"}
+
 @app.post("/analyze")
 async def get_personality(request: AnalyzeRequest):
-    # Endpoint verify karein (Aapke screenshot ke hisaab se)
     insta_url = f"https://{RAPID_API_HOST}/user/info"
     headers = {
         "X-RapidAPI-Key": RAPID_API_KEY,
@@ -34,27 +38,29 @@ async def get_personality(request: AnalyzeRequest):
 
     try:
         # Step 1: Instagram Data Fetch
-        # Kuch APIs 'username' leti hain, kuch 'username_or_id_or_url'
         params = {"username": request.username} 
         insta_res = requests.get(insta_url, headers=headers, params=params)
         
-        print(f"Insta API Status: {insta_res.status_code}") # Logs mein dikhega
-        
         if insta_res.status_code != 200:
-            print(f"Insta Error Detail: {insta_res.text}")
-            raise HTTPException(status_code=insta_res.status_code, detail="Instagram API Failed")
+            # Agar Instagram API fail ho jaye
+            raise HTTPException(status_code=insta_res.status_code, detail=f"Insta API Error: {insta_res.text}")
 
         data = insta_res.json()
         
-        # Step 2: AI Analysis
+        # Step 2: AI Analysis (OpenRouter)
         openai.api_key = OPENROUTER_API_KEY
         openai.api_base = "https://openrouter.ai/api/v1"
 
-        prompt = f"Analyze Instagram personality of {data.get('full_name', 'User')}. Bio: {data.get('biography', 'No bio')}"
+        # Vibe check prompt
+        prompt = f"Analyze Instagram personality of {data.get('full_name', 'User')}. Bio: {data.get('biography', 'No bio')}. Give 3 funny traits."
 
         ai_res = openai.ChatCompletion.create(
             model="tngtech/deepseek-r1t-chimera:free",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
+            headers={
+                "HTTP-Referer": "https://instapersona.vercel.app", # Optional but good
+                "X-Title": "InstaPersona AI"
+            }
         )
 
         return {
@@ -69,6 +75,6 @@ async def get_personality(request: AnalyzeRequest):
         }
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {str(e)}") # Ye Render logs mein check karein
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"CRITICAL ERROR: {str(e)}") 
+        return {"success": False, "error": str(e)}
 
