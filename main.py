@@ -19,62 +19,66 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     username: str
 
+# Screenshot ke hisaab se credentials
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 RAPID_API_KEY = os.getenv("RAPID_API_KEY")
-RAPID_API_HOST = "instagram-profile-data-api.p.rapidapi.com"
+# Hostname screenshot mein "instagram-scraper-stable" dikh raha hai
+RAPID_API_HOST = "instagram-scraper-stable.p.rapidapi.com"
 
-# 1. Yeh naya route hai testing ke liye
 @app.get("/")
 def home():
-    return {"status": "online", "message": "InstaPersona Backend is running!"}
+    return {"status": "online", "message": "Backend is running with Scraper API!"}
 
 @app.post("/analyze")
 async def get_personality(request: AnalyzeRequest):
-    insta_url = f"https://{RAPID_API_HOST}/user/info"
+    # Screenshot ke mutabiq sahi endpoint: /v1/info
+    insta_url = f"https://{RAPID_API_HOST}/v1/info"
+    
     headers = {
         "X-RapidAPI-Key": RAPID_API_KEY,
         "X-RapidAPI-Host": RAPID_API_HOST
     }
 
     try:
-        # Step 1: Instagram Data Fetch
-        params = {"username": request.username} 
+        # Screenshot mein parameter ka naam 'username_or_url' dikh raha hai
+        params = {"username_or_id_or_url": request.username} 
+        
         insta_res = requests.get(insta_url, headers=headers, params=params)
         
         if insta_res.status_code != 200:
-            # Agar Instagram API fail ho jaye
-            raise HTTPException(status_code=insta_res.status_code, detail=f"Insta API Error: {insta_res.text}")
+            raise HTTPException(status_code=insta_res.status_code, detail="Instagram Profile Not Found")
 
-        data = insta_res.json()
+        data = insta_res.json().get("data", {}) # Is API mein data key ke andar info hoti hai
         
-        # Step 2: AI Analysis (OpenRouter)
+        # Profile details nikalna
+        full_name = data.get("full_name", "User")
+        bio = data.get("biography", "No bio available")
+        profile_pic = data.get("profile_pic_url")
+        followers = data.get("follower_count", 0)
+
+        # AI Analysis (OpenRouter)
         openai.api_key = OPENROUTER_API_KEY
         openai.api_base = "https://openrouter.ai/api/v1"
 
-        # Vibe check prompt
-        prompt = f"Analyze Instagram personality of {data.get('full_name', 'User')}. Bio: {data.get('biography', 'No bio')}. Give 3 funny traits."
+        prompt = f"Analyze the Instagram vibe of {full_name} (@{request.username}). Bio: {bio}. Followers: {followers}. Give a funny 3-point summary."
 
         ai_res = openai.ChatCompletion.create(
             model="tngtech/deepseek-r1t-chimera:free",
-            messages=[{"role": "user", "content": prompt}],
-            headers={
-                "HTTP-Referer": "https://instapersona.vercel.app", # Optional but good
-                "X-Title": "InstaPersona AI"
-            }
+            messages=[{"role": "user", "content": prompt}]
         )
 
         return {
             "success": True,
             "data": {
-                "name": data.get("full_name"),
+                "name": full_name,
                 "username": request.username,
-                "profile_pic": data.get("profile_pic_url"),
-                "followers": data.get("follower_count", 0),
+                "profile_pic": profile_pic,
+                "followers": followers,
                 "personality_report": ai_res.choices[0].message.content
             }
         }
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {str(e)}") 
-        return {"success": False, "error": str(e)}
+        print(f"Error: {str(e)}")
+        return {"success": False, "error": "API Error: Please check if the username is public."}
 
